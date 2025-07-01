@@ -1,9 +1,9 @@
 import requests
 import json
-from datetime import datetime, timedelta
+import urllib.parse
 
 # --- Step 0: Set session, cookies, headers ---
-csrf_token = "29b897538a6a723e9a8506d25a85dc25"  # Your current CSRF token
+csrf_token = "ce8f589d34a4d046ac72fb9e023218a7"  # Your current CSRF token
 cookies = {
     "_ga": "GA1.3.1470020755.1749466507",
     "csrf_gem_cookie": csrf_token,
@@ -13,7 +13,7 @@ cookies = {
 }
 
 headers = {
-    "accept": "*/*",
+    "accept": "/",
     "accept-language": "en-US,en;q=0.8",
     "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
     "sec-ch-ua": "\"Not)A;Brand\";v=\"8\", \"Chromium\";v=\"138\", \"Brave\";v=\"138\"",
@@ -46,28 +46,25 @@ resp_org = session.post(org_url, data=org_payload)
 org_list = resp_org.json()
 print("\nOrganizations:", org_list)
 
-# --- Step 4: Date Range Calculation ---
-today = datetime.now()
-two_months_ago = today - timedelta(days=60)
-start_date = two_months_ago.strftime('%d-%m-%Y')
-end_date = today.strftime('%d-%m-%Y')
-
-# --- Step 5: Final search for tenders ---
+# --- Step 4: Final tender request with date filtering ---
 search_url = "https://bidplus.gem.gov.in/advance-search"
 final_headers = headers.copy()
 final_headers["Content-Type"] = "application/json"
 
+from_date = "01-06-2025"
+to_date = "30-06-2025"
+
 payload = {
     "ministry": selected_ministry,
     "organization": org_list[0],  # First organization
-    "fromDate": start_date,
-    "toDate": end_date,
+    "fromDate": from_date,
+    "toDate": to_date,
     "csrf_bd_gem_nk": csrf_token
 }
 
 response = session.post(search_url, headers=final_headers, json=payload)
 
-# --- Step 6: Show response ---
+# --- Step 5: Show response ---
 print("\nServer Response Headers:")
 for k, v in response.headers.items():
     print(f"{k}: {v}")
@@ -77,3 +74,69 @@ try:
     print(json.dumps(response.json(), indent=2))
 except Exception:
     print(response.text)
+
+# --- Step 6: Fetch detailed bids using /search-bids endpoint ---
+search_bids_url = "https://bidplus.gem.gov.in/search-bids"
+
+# Use actual values or dummy values as per your requirement
+detailed_payload = {
+    "searchType": "ministry-search",
+    "ministry": "Ministry of Consumer Affairs Food and Public Distribution",
+    "buyerState": "",
+    "organization": "Central Warehousing Corporation (CWC)",
+    "department": "Department of Food and Public Distribution",
+    "bidEndFromMin": "2025-07-01",
+    "bidEndToMin": "2025-07-31",
+    "page": 1
+}
+
+# URL-encoded payload as required by the endpoint
+encoded_payload = urllib.parse.urlencode({
+    "payload": json.dumps(detailed_payload),
+    "csrf_bd_gem_nk": csrf_token
+})
+
+search_bids_headers = headers.copy()
+search_bids_headers["accept"] = "application/json, text/javascript, */*; q=0.01"
+search_bids_headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+
+search_bids_response = session.post(search_bids_url, headers=search_bids_headers, data=encoded_payload)
+
+print("\n--- Final Search Bids Response ---")
+try:
+    print(json.dumps(search_bids_response.json(), indent=2))
+except Exception:
+    print(search_bids_response.text)
+# --- Step 7: Filter tenders based on hardcoded keywords ---
+
+#keywords 
+keywords = ["ITSM", "HRMS", "NMS", "ITAM", "SIEE","ESS","Dashboard Reporting","Software Services","ITOM","Service Deska"]
+
+# Extract the tender list
+try:
+    tenders = search_bids_response.json().get("data", [])
+    print(f"\nTotal tenders found: {len(tenders)}")
+
+    # Filter based on keywords in 'itemTitle'
+    filtered_tenders = []
+    for tender in tenders:
+        title = tender.get("itemTitle", "").lower()
+        if any(keyword in title for keyword in keywords):
+            filtered_tenders.append(tender)
+
+    print(f"Filtered tenders matching keywords: {len(filtered_tenders)}")
+
+    #  Display filtered tenders
+    for idx, tender in enumerate(filtered_tenders, start=1):
+        print(f"\n--- Tender #{idx} ---")
+        print(f"Bid Number : {tender.get('bidNumber')}")
+        print(f"Title      : {tender.get('itemTitle')}")
+        print(f"Start Date : {tender.get('bidStartDate')}")
+        print(f"End Date   : {tender.get('bidEndDate')}")
+        print(f"Quantity   : {tender.get('quantity')}")
+        print(f"Dept       : {tender.get('departmentName')}")
+        print(f"Org        : {tender.get('organizationName')}")
+        print(f"State      : {tender.get('stateName')}, City: {tender.get('cityName')}")
+
+except Exception as e:
+    print("❌ Failed to filter tenders:", e)
