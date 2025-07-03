@@ -1,9 +1,11 @@
 import requests
 import json
 import urllib.parse
+import os
+from datetime import datetime
 
 # --- Step 0: Set session, cookies, headers ---
-csrf_token = "ce8f589d34a4d046ac72fb9e023218a7"  # Your current CSRF token
+csrf_token = "6ac0d866777b3a9729a4991089e5c39b"  # Your current CSRF token
 cookies = {
     "_ga": "GA1.3.1470020755.1749466507",
     "csrf_gem_cookie": csrf_token,
@@ -56,7 +58,7 @@ to_date = "30-06-2025"
 
 payload = {
     "ministry": selected_ministry,
-    "organization": org_list[0],  # First organization
+    "organization": org_list[0],
     "fromDate": from_date,
     "toDate": to_date,
     "csrf_bd_gem_nk": csrf_token
@@ -64,7 +66,6 @@ payload = {
 
 response = session.post(search_url, headers=final_headers, json=payload)
 
-# --- Step 5: Show response ---
 print("\nServer Response Headers:")
 for k, v in response.headers.items():
     print(f"{k}: {v}")
@@ -77,8 +78,6 @@ except Exception:
 
 # --- Step 6: Fetch detailed bids using /search-bids endpoint ---
 search_bids_url = "https://bidplus.gem.gov.in/search-bids"
-
-# Use actual values or dummy values as per your requirement
 detailed_payload = {
     "searchType": "ministry-search",
     "ministry": "Ministry of Consumer Affairs Food and Public Distribution",
@@ -90,7 +89,6 @@ detailed_payload = {
     "page": 1
 }
 
-# URL-encoded payload as required by the endpoint
 encoded_payload = urllib.parse.urlencode({
     "payload": json.dumps(detailed_payload),
     "csrf_bd_gem_nk": csrf_token
@@ -107,36 +105,88 @@ try:
     print(json.dumps(search_bids_response.json(), indent=2))
 except Exception:
     print(search_bids_response.text)
-# --- Step 7: Filter tenders based on hardcoded keywords ---
 
-#keywords 
-keywords = ["ITSM", "HRMS", "NMS", "ITAM", "SIEE","ESS","Dashboard Reporting","Software Services","ITOM","Service Deska"]
+# --- Step 7: Filter tenders based on keywords ---
+keywords = ["ITSM", "HRMS", "NMS", "ITAM", "SIEE", "ESS", "Dashboard Reporting", "Software Services", "ITOM", "Service Deska"]
 
-# Extract the tender list
 try:
     tenders = search_bids_response.json().get("data", [])
     print(f"\nTotal tenders found: {len(tenders)}")
 
-    # Filter based on keywords in 'itemTitle'
     filtered_tenders = []
     for tender in tenders:
         title = tender.get("itemTitle", "").lower()
-        if any(keyword in title for keyword in keywords):
+        if any(keyword.lower() in title for keyword in keywords):
+            bid_id = tender.get("bidNumber", "")
+            tender["downloadLink"] = f"https://bidplus.gem.gov.in/showbidDocument/{bid_id}"
             filtered_tenders.append(tender)
 
     print(f"Filtered tenders matching keywords: {len(filtered_tenders)}")
 
-    #  Display filtered tenders
     for idx, tender in enumerate(filtered_tenders, start=1):
+        bid_number = tender.get("bidNumber")
         print(f"\n--- Tender #{idx} ---")
-        print(f"Bid Number : {tender.get('bidNumber')}")
-        print(f"Title      : {tender.get('itemTitle')}")
-        print(f"Start Date : {tender.get('bidStartDate')}")
-        print(f"End Date   : {tender.get('bidEndDate')}")
-        print(f"Quantity   : {tender.get('quantity')}")
-        print(f"Dept       : {tender.get('departmentName')}")
-        print(f"Org        : {tender.get('organizationName')}")
-        print(f"State      : {tender.get('stateName')}, City: {tender.get('cityName')}")
+        print(f"Bid Number     : {bid_number}")
+        print(f"Title          : {tender.get('itemTitle')}")
+        print(f"Start Date     : {tender.get('bidStartDate')}")
+        print(f"End Date       : {tender.get('bidEndDate')}")
+        print(f"Quantity       : {tender.get('quantity')}")
+        print(f"Dept           : {tender.get('departmentName')}")
+        print(f"Org            : {tender.get('organizationName')}")
+        print(f"State          : {tender.get('stateName')}, City: {tender.get('cityName')}")
+        print(f"Download Link  : https://bidplus.gem.gov.in/showbidDocument/{bid_number}")
+
+    # --- Step 8: Save filtered tenders to a .json file ---
+    output_dir = "gem_tender_results"
+    os.makedirs(output_dir, exist_ok=True)
+    filename = f"filtered_tenders_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    filepath = os.path.join(output_dir, filename)
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(filtered_tenders, f, indent=2, ensure_ascii=False)
+
+    print(f"\n✅ Filtered tenders saved to: {filepath}")
 
 except Exception as e:
     print("❌ Failed to filter tenders:", e)
+    # --- Step 9: Download bid documents as PDFs ---
+    pdf_dir = os.path.join(output_dir, "pdfs")
+    os.makedirs(pdf_dir, exist_ok=True)
+
+    for tender in filtered_tenders:
+        bid_id = tender.get("bidNumber")
+        pdf_url = f"https://bidplus.gem.gov.in/showbidDocument/{bid_id}"
+        pdf_path = os.path.join(pdf_dir, f"{bid_id}.pdf")
+
+        try:
+            pdf_resp = session.get(pdf_url, headers={"Referer": "https://bidplus.gem.gov.in/advance-search"})
+            if pdf_resp.status_code == 200 and b"%PDF" in pdf_resp.content[:1024]:
+                with open(pdf_path, "wb") as pdf_file:
+                    pdf_file.write(pdf_resp.content)
+                print(f"📄 Downloaded PDF for Bid ID {bid_id} -> {pdf_path}")
+            else:
+                print(f"⚠️  Skipped (not a valid PDF or forbidden): {bid_id}")
+        except Exception as err:
+            print(f"❌ Error downloading PDF for {bid_id}:", err)
+            
+# --- Step 10: Summarize downloaded PDFs using Gemini ---
+for tender in filtered_tenders:
+    bid_id = tender.get("bidNumber")
+    pdf_path = os.path.join(pdf_dir, f"{bid_id}.pdf")
+
+    text = extract_text_from_pdf(pdf_path)
+    if not text.strip():
+        continue
+
+    summary = summarize_pdf_with_gemini(text, bid_id)
+    if summary:
+        try:
+            summary_json = json.loads(summary)
+            tender.update({
+                "summary": summary_json
+            })
+            print(f"📝 Summary extracted for Bid ID {bid_id}")
+        except json.JSONDecodeError:
+            print(f"⚠️  Could not parse Gemini response for {bid_id}")
+
+
