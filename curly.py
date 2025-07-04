@@ -3,9 +3,104 @@ import json
 import urllib.parse
 import os
 from datetime import datetime
+# o(N^2)
+
+MINISTRY_CONFIG = [
+    "Autonomous Body",
+    "Cabinet Secretariat",
+    "Comptroller and Auditor General (CAG) of India",
+    "Department of Space",
+    "Election Commission of India",
+    "Insurance Regulatory and Development Authority (IRDA)",
+    "Law Commission of India",
+    "Lok Sabha Secretariat",
+    "Ministry of Agriculture and Farmers Welfare",
+    "Ministry of AYUSH",
+    "Ministry of Chemicals and Fertilizers",
+    "Ministry of Civil Aviation",
+    "Ministry of Coal",
+    "Ministry of Commerce and Industry",
+    "Ministry of Communications",
+    "Ministry of Consumer Affairs Food and Public Distribution",
+    "Ministry of Cooperation",
+    "Ministry of Corporate Affairs",
+    "Ministry of Culture",
+    "Ministry of Defence",
+    "Ministry of Development of North Eastern Region",
+    "Ministry of Drinking Water and Sanitation",
+    "Ministry of Earth Sciences",
+    "Ministry of Education",
+    "Ministry of Electronics and Information Technology",
+    "Ministry of Environment Forest and Climate Change",
+    "Ministry of External Affairs",
+    "Ministry of Finance",
+    "Ministry of Fisheries Animal Husbandry Dairying",
+    "Ministry of Food Processing Industries",
+    "Ministry of Health and Family Welfare",
+    "Ministry of Heavy Industries and Public Enterprises",
+    "Ministry of Home Affairs",
+    "Ministry of Housing & Urban Affairs (MoHUA)",
+    "Ministry of Housing and Urban Poverty Alleviation",
+    "Ministry of Human Resource Development",
+    "Ministry of Information and Broadcasting",
+    "Ministry of Labour and Employment",
+    "Ministry of Law and Justice",
+    "Ministry of Micro Small and Medium Enterprises",
+    "Ministry of Mines",
+    "Ministry of Minority Affairs",
+    "Ministry of New and Renewable Energy",
+    "Ministry of Panchayati Raj",
+    "Ministry of Parliamentary Affairs",
+    "Ministry of Personnel Public Grievances and Pensions",
+    "Ministry of Petroleum and Natural Gas",
+    "Ministry of Ports, Shipping and Waterways",
+    "Ministry of Power",
+    "Ministry of Railways",
+    "Ministry of Road Transports and highways",
+    "Ministry of Rural Development ",
+    "Ministry of Science and Technology",
+    "Ministry of Skill Development and Entrepreneurship",
+    "Ministry of Social Justice and Empowerment",
+    "Ministry of Statistics and Programme Implementation",
+    "Ministry of Steel",
+    "Ministry of Textiles",
+    "Ministry of Tourism",
+    "Ministry of Tribal Affairs",
+    "Ministry of Urban Development",
+    "Ministry of Water Resources River Development and Ganga Rejuvenation",
+    "Ministry of Women and Child Development",
+    "Ministry of Youth Affairs and Sports",
+    "National Mission for Clean Ganga (NMCG), New Delhi",
+    "National Rural Livelihoods Mission (NRLM) - Aajeevika",
+    "NITI Aayog - National Institution for Transforming India",
+    "Office of the Principal Scientific Adviser",
+    "PMO",
+    "President of India",
+    "Rajya Sabha Secretariat",
+    "Seventh Central Pay Commission, New Delhi",
+    "Vice President of India"
+]
+
+ORGANIZATION_CONFIG =[
+"Center for Marine Living Resource Ecology (CMLRE)"
+"Earth Sciences Secretariate"
+"Indian Institute of Tropical Meteorology"
+"METNET : An e-Governance Intra-IMD Portal New Delhi"
+"N/A"
+"National Center for Medium Range Weather Forecasting (NCMRWF)"
+"National center for Seismology (NCS)"
+"National Centre for Antarctic and Ocean Research (NCAOR)"
+"National Centre for Coastal Research (NCCR)"
+"National Centre for Coastal Research NCCR"
+"National Centre for Earth Science Studies(NCESS)"
+"National Institute of Ocean Technology"
+"National Institute of Ocean Technology (NIOT)"
+"Regional Meteorological Centre"
+"Regional Meteorological Centre New Delhi"
+]
 
 # --- Step 0: Set session, cookies, headers ---
-csrf_token = "6ac0d866777b3a9729a4991089e5c39b"  # Your current CSRF token
+csrf_token = "4e2fe8e5b1a0520ddf6e836e94f7a89d"  # Your current CSRF token
 cookies = {
     "_ga": "GA1.3.1470020755.1749466507",
     "csrf_gem_cookie": csrf_token,
@@ -78,35 +173,60 @@ except Exception:
 
 # --- Step 6: Fetch detailed bids using /search-bids endpoint ---
 search_bids_url = "https://bidplus.gem.gov.in/search-bids"
-detailed_payload = {
-    "searchType": "ministry-search",
-    "ministry": "Ministry of Consumer Affairs Food and Public Distribution",
-    "buyerState": "",
-    "organization": "Central Warehousing Corporation (CWC)",
-    "department": "Department of Food and Public Distribution",
-    "bidEndFromMin": "2025-07-01",
-    "bidEndToMin": "2025-07-31",
-    "page": 1
-}
-
-encoded_payload = urllib.parse.urlencode({
-    "payload": json.dumps(detailed_payload),
-    "csrf_bd_gem_nk": csrf_token
-})
-
 search_bids_headers = headers.copy()
 search_bids_headers["accept"] = "application/json, text/javascript, */*; q=0.01"
 search_bids_headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
 
-search_bids_response = session.post(search_bids_url, headers=search_bids_headers, data=encoded_payload)
+all_filtered_tenders = []
 
-print("\n--- Final Search Bids Response ---")
-try:
-    print(json.dumps(search_bids_response.json(), indent=2))
-except Exception:
-    print(search_bids_response.text)
+for ministry in MINISTRY_CONFIG:
+    # Get organizations for this ministry
+    org_payload = f"ministry={urllib.parse.quote_plus(ministry)}&csrf_bd_gem_nk={csrf_token}"
+    try:
+        resp_org = session.post("https://bidplus.gem.gov.in/org-list-adv", data=org_payload)
+        organizations = resp_org.json()
 
-# --- Step 7: Filter tenders based on keywords ---
+        for org in organizations:
+            # Your processing logic here
+            print(f"🔄 Processing: Ministry = {ministry}, Organization = {org}")
+    except Exception as e:
+        print(f"❌ Error fetching organizations for {ministry}: {e}")
+        
+        detailed_payload = {
+            "searchType": "ministry-search",
+            "ministry": ministry,
+            "buyerState": state,
+            "organization": "",
+            "department": "",
+            "bidEndFromMin": "2025-07-01",
+            "bidEndToMin": "2025-07-31",
+            "page": 1
+        }
+        
+        encoded_payload = urllib.parse.urlencode({
+            "payload": json.dumps(detailed_payload),
+            "csrf_bd_gem_nk": csrf_token
+        })
+
+        search_bids_response = session.post(search_bids_url, headers=search_bids_headers, data=encoded_payload)
+
+        try:
+            tenders = search_bids_response.json().get("data", [])
+            print(f"\n🔍 {ministry} | {state} → {len(tenders)} tenders found.")
+
+            for tender in tenders:
+                title = tender.get("itemTitle", "").lower()
+                if any(keyword.lower() in title for keyword in keywords):
+                    bid_id = tender.get("bidNumber", "")
+                    tender["downloadLink"] = f"https://bidplus.gem.gov.in/showbidDocument/{bid_id}"
+                    tender["ministry"] = ministry
+                    tender["state"] = state
+                    all_filtered_tenders.append(tender)
+
+        except Exception as e:
+            print(f"❌ Error in {ministry} / {state}: {e}")
+            
+            # --- Step 7: Filter tenders based on keywords ---
 keywords = ["ITSM", "HRMS", "NMS", "ITAM", "SIEE", "ESS", "Dashboard Reporting", "Software Services", "ITOM", "Service Deska"]
 
 try:
@@ -188,5 +308,4 @@ for tender in filtered_tenders:
             print(f"📝 Summary extracted for Bid ID {bid_id}")
         except json.JSONDecodeError:
             print(f"⚠️  Could not parse Gemini response for {bid_id}")
-
 
